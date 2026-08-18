@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
-import mysql.connector
+import sqlite3
+import os
 
 # Page Configuration
 st.set_page_config(page_title="Advanced Ecommerce Analytics", layout="wide")
@@ -8,28 +9,14 @@ st.set_page_config(page_title="Advanced Ecommerce Analytics", layout="wide")
 st.title("📊 Enterprise Business Intelligence Dashboard")
 st.markdown("---")
 
-# 1. Secure Database Connection Engine using Streamlit Secrets
-def get_mysql_connection():
-    # If deployed on Streamlit Cloud, read credentials from st.secrets
-    if "mysql" in st.secrets:
-        return mysql.connector.connect(
-            host=st.secrets["mysql"]["host"],
-            port=st.secrets["mysql"].get("port", 3306),
-            user=st.secrets["mysql"]["user"],
-            password=st.secrets["mysql"]["password"],
-            database=st.secrets["mysql"]["database"]
-        )
-    # Fallback for local execution
-    else:
-        return mysql.connector.connect(
-            host="localhost",
-            user="root",
-            password="raees",
-            database="ecommerce_analytics"
-        )
+# 1. Database Connection Engine (SQLite)
+def get_connection():
+    # Looks for ecommerce.db in the same directory as this script
+    db_path = os.path.join(os.path.dirname(__file__), "ecommerce.db")
+    return sqlite3.connect(db_path)
 
 try:
-    conn = get_mysql_connection()
+    conn = get_connection()
     
     # ==========================================
     # SECTION 1: GLOBAL HIGH-LEVEL PERFORMANCE KPIs
@@ -42,7 +29,7 @@ try:
         conn
     )
     
-    # Calculate retention metric from DB
+    # Calculate retention metric from DB (SQLite syntax)
     df_retention = pd.read_sql("""
         WITH counts AS (
             SELECT customer_id, COUNT(order_id) as o_count 
@@ -67,8 +54,9 @@ try:
     
     with left_chart_col:
         st.subheader("📈 Monthly Sales Volume Trends")
+        # SQLite uses strftime instead of DATE_FORMAT
         revenue_query = """
-            SELECT DATE_FORMAT(order_date, '%Y-%m') AS order_month, SUM(total_amount) AS monthly_revenue
+            SELECT strftime('%Y-%m', order_date) AS order_month, SUM(total_amount) AS monthly_revenue
             FROM orders GROUP BY order_month ORDER BY order_month;
         """
         df_rev = pd.read_sql(revenue_query, conn)
@@ -109,14 +97,11 @@ try:
     """
     df_rfm = pd.read_sql(rfm_query, conn)
     
-    # Split into visual groupings
     col_rfm_chart, col_rfm_table = st.columns([1, 2])
     with col_rfm_chart:
-        segment_counts = df_rfm['customer_segment'].value_counts()
         st.scatter_chart(data=df_rfm, x="order_frequency", y="total_spent", color="customer_segment")
     with col_rfm_table:
-        # Replaced deprecated use_container_width with width="stretch"
-        st.dataframe(df_rfm, width="stretch")
+        st.dataframe(df_rfm, use_container_width=True)
 
     st.markdown("---")
 
@@ -146,8 +131,7 @@ try:
     with col_disc_chart:
         st.bar_chart(data=df_discount, x="discount_applied", y="actual_net_profit", color="#ff7f0e")
     with col_disc_table:
-        # Replaced deprecated use_container_width with width="stretch"
-        st.dataframe(df_discount, width="stretch")
+        st.dataframe(df_discount, use_container_width=True)
         st.caption("Insight: Deep discounts increase total gross scale volume, but middle-tier margins preserve net return ceilings.")
 
     conn.close()
