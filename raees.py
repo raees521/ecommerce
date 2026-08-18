@@ -8,14 +8,25 @@ st.set_page_config(page_title="Advanced Ecommerce Analytics", layout="wide")
 st.title("📊 Enterprise Business Intelligence Dashboard")
 st.markdown("---")
 
-# 1. Database Connection Engine
+# 1. Secure Database Connection Engine using Streamlit Secrets
 def get_mysql_connection():
-    return mysql.connector.connect(
-        host="localhost",
-        user="root",        # Using your working verified configuration
-        password="raees",   
-        database="ecommerce_analytics"
-    )
+    # If deployed on Streamlit Cloud, read credentials from st.secrets
+    if "mysql" in st.secrets:
+        return mysql.connector.connect(
+            host=st.secrets["mysql"]["host"],
+            port=st.secrets["mysql"].get("port", 3306),
+            user=st.secrets["mysql"]["user"],
+            password=st.secrets["mysql"]["password"],
+            database=st.secrets["mysql"]["database"]
+        )
+    # Fallback for local execution
+    else:
+        return mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password="raees",
+            database="ecommerce_analytics"
+        )
 
 try:
     conn = get_mysql_connection()
@@ -26,12 +37,20 @@ try:
     st.subheader("💵 Financial Performance Overview")
     col1, col2, col3, col4 = st.columns(4)
     
-    df_kpi = pd.read_sql("SELECT COUNT(order_id) as total_orders, SUM(total_amount) as total_rev, AVG(total_amount) as aov FROM orders", conn)
+    df_kpi = pd.read_sql(
+        "SELECT COUNT(order_id) as total_orders, SUM(total_amount) as total_rev, AVG(total_amount) as aov FROM orders", 
+        conn
+    )
     
     # Calculate retention metric from DB
     df_retention = pd.read_sql("""
-        WITH counts AS (SELECT customer_id, COUNT(order_id) as o_count FROM orders GROUP BY customer_id)
-        SELECT ROUND(100.0 * COUNT(CASE WHEN o_count > 1 THEN 1 END) / COUNT(*), 2) as rate FROM counts
+        WITH counts AS (
+            SELECT customer_id, COUNT(order_id) as o_count 
+            FROM orders 
+            GROUP BY customer_id
+        )
+        SELECT ROUND(100.0 * COUNT(CASE WHEN o_count > 1 THEN 1 END) / COUNT(*), 2) as rate 
+        FROM counts
     """, conn)
     
     col1.metric("Total Net Revenue", f"${df_kpi['total_rev'].iloc[0]:,.2f}")
@@ -96,7 +115,8 @@ try:
         segment_counts = df_rfm['customer_segment'].value_counts()
         st.scatter_chart(data=df_rfm, x="order_frequency", y="total_spent", color="customer_segment")
     with col_rfm_table:
-        st.dataframe(df_rfm, use_container_width=True)
+        # Replaced deprecated use_container_width with width="stretch"
+        st.dataframe(df_rfm, width="stretch")
 
     st.markdown("---")
 
@@ -110,7 +130,12 @@ try:
             o.discount_amount AS discount_applied,
             COUNT(o.order_id) AS order_count,
             AVG(o.total_amount) AS current_aov,
-            SUM(o.total_amount - (SELECT SUM(p.unit_cost * oi.quantity) FROM order_items oi JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id)) AS actual_net_profit
+            SUM(o.total_amount - (
+                SELECT SUM(p.unit_cost * oi.quantity) 
+                FROM order_items oi 
+                JOIN products p ON oi.product_id = p.product_id 
+                WHERE oi.order_id = o.order_id
+            )) AS actual_net_profit
         FROM orders o
         GROUP BY o.discount_amount
         ORDER BY o.discount_amount ASC;
@@ -121,7 +146,8 @@ try:
     with col_disc_chart:
         st.bar_chart(data=df_discount, x="discount_applied", y="actual_net_profit", color="#ff7f0e")
     with col_disc_table:
-        st.dataframe(df_discount, use_container_width=True)
+        # Replaced deprecated use_container_width with width="stretch"
+        st.dataframe(df_discount, width="stretch")
         st.caption("Insight: Deep discounts increase total gross scale volume, but middle-tier margins preserve net return ceilings.")
 
     conn.close()
